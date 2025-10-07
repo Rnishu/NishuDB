@@ -128,6 +128,16 @@ func leafInsert(
 	nodeAppendRange(new, old, idx+1, idx, old.nkeys()-idx)
 }
 
+func leafUpdate(
+	new BNode, old BNode, idx uint16,
+	key []byte, val []byte,
+) {
+	new.setHeader(BNODE_LEAF, old.nkeys()+1) // setup the header
+	nodeAppendRange(new, old, 0, 0, idx)
+	nodeAppendKV(new, idx, 0, key, val)
+	nodeAppendRange(new, old, idx+1, idx, old.nkeys()-idx)
+}
+
 func nodeReplaceKidN(
 	tree *BTree, new BNode, old BNode, idx uint16,
 	kids ...BNode,
@@ -305,6 +315,43 @@ func nodeDelete(tree *BTree, node BNode, idx uint16, key []byte) BNode {
 		nodeReplaceKidN(tree, new, node, idx, updated)
 	}
 	return new
+}
+
+type C struct {
+	tree  BTree
+	ref   map[string]string // the reference data
+	pages map[uint64]BNode  // in-memory pages
+}
+
+func newC() *C {
+	pages := map[uint64]BNode{}
+	return &C{
+		tree: BTree{
+			get: func(ptr uint64) []byte {
+				node, ok := pages[ptr]
+				assert(ok)
+				return node
+			},
+			new: func(node []byte) uint64 {
+				assert(BNode(node).nbytes() <= BTREE_PAGE_SIZE)
+				ptr := uint64(uintptr(unsafe.Pointer(&node[0])))
+				assert(pages[ptr] == nil)
+				pages[ptr] = node
+				return ptr
+			},
+			del: func(ptr uint64) {
+				assert(pages[ptr] != nil)
+				delete(pages, ptr)
+			},
+		},
+		ref:   map[string]string{},
+		pages: pages,
+	}
+}
+
+func (c *C) add(key string, val string) {
+	c.tree.Insert([]byte(key), []byte(val))
+	c.ref[key] = val // reference data
 }
 
 func init() {
